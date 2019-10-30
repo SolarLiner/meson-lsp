@@ -1,20 +1,19 @@
 import logging
 import os
-import sys
 from pathlib import Path
 from typing import Optional, List
 from urllib import parse
 
 from mesonbuild import mparser, environment, mesonlib
 from mesonbuild.ast import AstInterpreter, AstVisitor
-
 # from .workspace import Workspace
+from mesonbuild.mparser import ParseException
 
 logger = logging.getLogger(__name__)
 
 
 class LSPInterpreter(AstInterpreter):
-    def __init__(self, workspace: 'mlsp.workspace.Workspace', subdir: str, visitors: Optional[List[AstVisitor]]):
+    def __init__(self, workspace: 'mlsp.workspace.Workspace', subdir: str, visitors: Optional[List[AstVisitor]] = None):
         self.workspace = workspace
         self.ast = None
         source_root = parse.unquote(parse.urlparse(workspace.root_uri).path)
@@ -27,37 +26,40 @@ class LSPInterpreter(AstInterpreter):
         if meson_uri in self.workspace.documents:
             document = self.workspace.get_document(meson_uri)
             self.ast = mparser.Parser(document.contents, '').parse()
-            if self.visitors:
-                for visitor in self.visitors:
-                    self.ast.accept(visitor)
+            self.visit()
         else:
             super().load_root_meson_file()
 
+    def visit(self, extra_visitors: Optional[List[AstVisitor]] = None):
+        all_visitors = (self.visitors or []) + (extra_visitors or [])
+        if self.ast:
+            for visitor in all_visitors:
+                self.ast.accept(visitor)
+        else:
+            logger.warning("AST Not built!")
+
     def func_subdir(self, node, args, kwargs):
         args = self.flatten_args(args)
-        if len(args) != 1 or not isinstance(args[0], str):
-            sys.stderr.write(
-                'Unable to evaluate subdir({}) in AstInterpreter -> skipping\n'.format(args)
-            )
-            return
+        if len(args) > 1:
+            raise ParseException("`subdir` only accepts 1 argument; found %d instead" % len(args), "",
+                                 node.lineno,
+                                 node.colno)
+        if not isinstance(args[0], str):
+            raise ParseException("`subdir` expects a string argument; found %s instead" % str(type(args[0])), "",
+                                 node.lineno, node.colno)
         prev_subdir = self.subdir
         subdir = os.path.join(prev_subdir, args[0])
-        absdir = os.path.join(self.source_root, subdir)
         build_filename = os.path.join(subdir, environment.build_filename)
         absname = os.path.join(self.source_root, build_filename)
         symlinkless_dir = os.path.join(self.source_root, build_filename)
         if symlinkless_dir in self.visited_subdirs:
-            sys.stderr.write(
-                'Trying to enter {} which has already been visited --> skipping\n'.format(args[0])
-            )
+            logger.info('Trying to enter %s which has already been visited --> skipping', args[0])
             return
         self.visited_subdirs[symlinkless_dir] = True
         abs_uri = Path(absname).as_uri()
         if abs_uri not in self.workspace.documents:
             if not os.path.isfile(absname):
-                sys.stderr.write(
-                    'Unable to find build file {} --> skipping\n'.format(build_filename)
-                )
+                logger.info('Unable to find build file %s --> skipping', build_filename)
                 return
             with open(absname, encoding='utf8') as f:
                 code = f.read()

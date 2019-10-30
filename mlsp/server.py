@@ -17,9 +17,7 @@ logger = logging.getLogger(__name__)
 
 def new_with_stdio(options: argparse.Namespace):
     logger.info('Starting Meson LS using stdin/stdout (%s)', repr(options))
-    server = MesonLanguageServer(sys.stdin.buffer, sys.stdout.buffer)
-    server.start()
-    return server
+    return MesonLanguageServer(sys.stdin.buffer, sys.stdout.buffer)
 
 
 class MesonLanguageServer(MethodDispatcher):
@@ -39,7 +37,8 @@ class MesonLanguageServer(MethodDispatcher):
         logger.info('Starting')
         self.rpc_reader.listen(self.endpoint.consume)
 
-    def capabilities(self):
+    @staticmethod
+    def capabilities():
         capabilities = {
             'completionProvider': True,
             'textDocumentSync': consts.TextDocumentSyncKind.INCREMENTAL
@@ -47,7 +46,10 @@ class MesonLanguageServer(MethodDispatcher):
         return capabilities
 
     def m_initialize(self, **kwargs):
-        logger.info('Initializing: %s', repr(kwargs))
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Initializing: %s", repr(kwargs))
+        else:
+            logger.info('Server initializing', repr(kwargs))
         if 'rootUri' not in kwargs:
             root_uri = Path(kwargs.get('rootPath')).as_uri()
         else:
@@ -61,7 +63,7 @@ class MesonLanguageServer(MethodDispatcher):
     def m_initialized(self, **_kwargs):
         pass
 
-    def m_text_document__did_open(self, textDocument):
+    def m_text_document__did_open(self, textDocument: dict):
         self.workspace.update(
             textDocument,
             dict(
@@ -95,7 +97,7 @@ class MesonLanguageServer(MethodDispatcher):
         )
 
     def m_text_document__completion(self, **kwargs):
-        return self.workspace.get_symbols()
+        return self.workspace.symbols
 
     def m_shutdown(self, **_kwargs):
         logger.warning('Shutting down')

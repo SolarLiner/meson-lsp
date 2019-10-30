@@ -43,6 +43,7 @@ class Document:
     def update(self, changes):
         if not 'change_range' in changes:
             self.contents = changes.get("text")
+            self.version += 1
             return
         start_pos = self.get_position_character_count(changes.get("start").get("line"),
                                                       changes.get("start").get("character"))

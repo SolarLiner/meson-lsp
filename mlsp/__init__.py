@@ -1,7 +1,9 @@
 import argparse
 import logging
 import sys
+from logging import Formatter
 
+from mlsp.log_handler import LanguageServerLoggingHandler
 from mlsp.server import new_with_stdio
 
 
@@ -21,5 +23,16 @@ def main():
     sh = logging.StreamHandler(sys.stderr)
     sh.setLevel(0)
     logger.addHandler(sh)
-    logger.setLevel(logging.DEBUG)
+    if namespace.debug:
+        logger.setLevel(logging.DEBUG)
+    else:
+        logger.setLevel(logging.WARNING)
     server = new_with_stdio(namespace)
+    lsp_handler = LanguageServerLoggingHandler(server.endpoint)
+    lsp_handler.setFormatter(Formatter(fmt="[%(module)s - %(asctime)-8s] %(message)s", datefmt="%H:%M:%S"))
+    logger.addHandler(lsp_handler)
+
+    try:
+        server.start()
+    except Exception as ex:
+        logger.exception("Server exception")
